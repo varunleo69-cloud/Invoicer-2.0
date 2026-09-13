@@ -75,3 +75,35 @@ jobs:
         run: |
           docker push ${{ env.IMAGE_PREFIX }}-backend:${{ github.sha }}
           docker push ${{ env.IMAGE_PREFIX }}-backend:latest
+
+  deploy:
+    runs-on: self-hosted
+    needs: build-and-push
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull latest images
+        run: |
+          docker compose -f docker-compose.prod.yml pull
+
+      - name: Deploy application
+        run: |
+          docker compose -f docker-compose.prod.yml up -d
+
+      - name: Check deployment
+        run: |
+          docker compose -f docker-compose.prod.yml ps
