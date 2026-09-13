@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Client Invoicing & Billing Portal</title>
+  <link rel="stylesheet" href="/style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <div class="brand">
+        <div class="logo">💼</div>
+        <div>
+          <h1>Invoice Generator</h1>
+          <p class="subtitle">Multi-Tier Itemized GST Invoicing Portal</p>
+        </div>
+      </div>
+      <div id="system-status" class="status-badge status-loading">Checking API...</div>
+    </header>
+
+    <div class="card">
+      <form id="invoice-form">
+        <div class="form-row header-row">
+          <span class="col-desc">Item Description</span>
+          <span class="col-price">Unit Price (₹)</span>
+          <span class="col-qty">Qty</span>
+          <span class="col-gst">Item GST</span>
+          <span class="col-action"></span>
+        </div>
+
+        <div id="items-container">
+          <!-- Item rows generated dynamically -->
+        </div>
+
+        <div class="actions-bar">
+          <button type="button" id="add-item-btn" class="btn btn-secondary">+ Add Item</button>
+          <button type="submit" id="generate-btn" class="btn btn-primary">Generate Invoice</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="card">
+      <div class="section-heading">
+        <div>
+          <h2>Saved Invoices</h2>
+          <p class="subtitle">Invoices stored in PostgreSQL through the backend API.</p>
+        </div>
+        <button type="button" id="refresh-invoices-btn" class="btn btn-secondary">Refresh</button>
+      </div>
+      <div id="saved-invoices" class="saved-invoices">Loading invoices...</div>
+    </div>
+
+    <!-- Invoice Summary Output -->
+    <div id="result-card" class="card result-card hidden">
+      <h2>Tax Invoice Summary</h2>
+      
+      <table class="invoice-table">
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th>Qty</th>
+            <th>Rate</th>
+            <th>GST %</th>
+            <th>GST Amt</th>
+            <th>Total</th>
+          </tr>
+        </thead>
+        <tbody id="invoice-breakdown-body">
+          <!-- Populated dynamically -->
+        </tbody>
+      </table>
+
+      <div class="divider"></div>
+
+      <div class="summary-line">
+        <span>Total Items:</span>
+        <strong id="res-items">0</strong>
+      </div>
+      <div class="summary-line">
+        <span>Taxable Subtotal:</span>
+        <strong id="res-subtotal">₹0</strong>
+      </div>
+      <div class="summary-line">
+        <span>Total GST:</span>
+        <strong id="res-tax">₹0</strong>
+      </div>
+      <div class="divider"></div>
+      <div class="summary-line grand-total">
+        <span>Grand Total:</span>
+        <strong id="res-total">₹0</strong>
+      </div>
+
+      <div class="action-buttons">
+        <button class="btn btn-primary" onclick="window.print()">🖨️ Print / Save as PDF</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/config.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

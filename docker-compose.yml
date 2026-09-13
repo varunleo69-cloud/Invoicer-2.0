@@ -1,0 +1,51 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+    container_name: invoicer-frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      backend:
+        condition: service_started
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+    container_name: invoicer-backend
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: invoicer
+      DB_USER: invoicer
+      DB_PASSWORD: invoicer_dev_password
+      FRONTEND_ORIGIN: http://localhost:8080
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: invoicer-postgres
+    environment:
+      POSTGRES_DB: invoicer
+      POSTGRES_USER: invoicer
+      POSTGRES_PASSWORD: invoicer_dev_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U invoicer -d invoicer"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

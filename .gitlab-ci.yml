@@ -1,0 +1,36 @@
+stages:
+  - test
+  - build
+  - deploy
+
+# 1. Run unit tests using Node.js container
+test-app:
+  stage: test
+  image: node:18-alpine
+  script:
+    - npm install
+    - npm test
+
+# 2. Build the Docker image
+build-image:
+  stage: build
+  image: docker:24-cli
+  script:
+    - docker build -t invoicer:$CI_COMMIT_SHORT_SHA .
+    - docker tag invoicer:$CI_COMMIT_SHORT_SHA invoicer:latest
+
+# 3. Deploy/run the container locally
+deploy-container:
+  stage: deploy
+  image: docker:24-cli
+  script:
+    # Stop and remove existing container if running
+    - docker stop invoicer || true
+    - docker rm invoicer || true
+    # Run the new container
+    - docker run -d --name invoicer -p 3000:3000 invoicer:latest
+    # Simple smoke check
+    - sleep 3
+    - docker ps | grep invoicer
+  only:
+    - main
