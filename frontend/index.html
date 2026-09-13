@@ -20,7 +20,22 @@
       <div id="system-status" class="status-badge status-loading">Checking API...</div>
     </header>
 
-    <div class="card">
+    <div class="saved-toggle-row">
+      <button type="button" id="saved-invoices-btn" class="btn btn-secondary">Saved Invoices</button>
+    </div>
+
+    <section id="saved-panel" class="card saved-panel hidden" aria-label="Saved invoices">
+      <div class="section-heading">
+        <div>
+          <h2>Saved Invoices</h2>
+          <p class="subtitle">Invoices stored in PostgreSQL.</p>
+        </div>
+        <button type="button" id="refresh-invoices-btn" class="btn btn-secondary">Refresh</button>
+      </div>
+      <div id="saved-invoices" class="saved-invoices">Loading invoices...</div>
+    </section>
+
+    <div id="invoice-form-card" class="card">
       <form id="invoice-form">
         <div class="form-row header-row">
           <span class="col-desc">Item Description</span>
@@ -41,21 +56,9 @@
       </form>
     </div>
 
-    <div class="card">
-      <div class="section-heading">
-        <div>
-          <h2>Saved Invoices</h2>
-          <p class="subtitle">Invoices stored in PostgreSQL through the backend API.</p>
-        </div>
-        <button type="button" id="refresh-invoices-btn" class="btn btn-secondary">Refresh</button>
-      </div>
-      <div id="saved-invoices" class="saved-invoices">Loading invoices...</div>
-    </div>
-
-    <!-- Invoice Summary Output -->
     <div id="result-card" class="card result-card hidden">
       <h2>Tax Invoice Summary</h2>
-      
+
       <table class="invoice-table">
         <thead>
           <tr>

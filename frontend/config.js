@@ -1,4 +1,5 @@
-// The browser calls the backend directly. Override API_BASE for another environment.
+// Empty API_BASE keeps browser requests on the same origin.
+// Nginx reverse-proxies /api and /health to the backend container.
 window.INVOICER_CONFIG = {
-  API_BASE: 'http://localhost:3000'
+  API_BASE: ''
 };

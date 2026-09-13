@@ -66,3 +66,10 @@ input:focus, select:focus { outline: none; border-color: var(--primary); }
 .saved-invoice-actions { display: flex; gap: 0.4rem; }
 .btn-small { padding: 0.4rem 0.7rem; font-size: 0.8rem; }
 @media (max-width: 640px) { .section-heading, .saved-invoice { align-items: flex-start; flex-direction: column; } .saved-invoice-actions { width: 100%; } }
+
+.saved-toggle-row { display: flex; justify-content: flex-end; margin-bottom: 1rem; }
+.saved-toggle-row .btn { min-width: 150px; }
+.saved-panel { margin-bottom: 1.5rem; }
+@media print {
+  #saved-panel, .saved-toggle-row { display: none !important; }
+}

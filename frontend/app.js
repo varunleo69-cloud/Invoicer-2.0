@@ -1,4 +1,4 @@
-const API_BASE = (window.INVOICER_CONFIG && window.INVOICER_CONFIG.API_BASE) || 'http://localhost:3000';
+const API_BASE = (window.INVOICER_CONFIG && window.INVOICER_CONFIG.API_BASE) || '';
 
 const itemsContainer = document.getElementById('items-container');
 const addItemBtn = document.getElementById('add-item-btn');
@@ -8,6 +8,8 @@ const statusBadge = document.getElementById('system-status');
 const breakdownBody = document.getElementById('invoice-breakdown-body');
 const savedInvoices = document.getElementById('saved-invoices');
 const refreshInvoicesBtn = document.getElementById('refresh-invoices-btn');
+const savedInvoicesBtn = document.getElementById('saved-invoices-btn');
+const savedPanel = document.getElementById('saved-panel');
 
 async function checkHealth() {
   try {
@@ -24,9 +26,15 @@ async function checkHealth() {
     statusBadge.style.color = '#ef4444';
   }
 }
-checkHealth();
-loadInvoices();
+function toggleSavedInvoices() {
+  const isHidden = savedPanel.classList.toggle('hidden');
+  savedInvoicesBtn.setAttribute('aria-expanded', String(!isHidden));
+  if (!isHidden) loadInvoices();
+}
+
+savedInvoicesBtn.addEventListener('click', toggleSavedInvoices);
 refreshInvoicesBtn.addEventListener('click', loadInvoices);
+checkHealth();
 
 function createItemRow(desc = '', price = '', qty = '', taxRate = '0.18') {
   const row = document.createElement('div');
@@ -111,7 +119,6 @@ form.addEventListener('submit', async (e) => {
     }
 
     renderInvoice(data.invoice);
-    loadInvoices();
   } catch (err) {
     alert(`Failed to save invoice: ${err.message}`);
   }
@@ -169,6 +176,7 @@ async function loadInvoices() {
     savedInvoices.querySelectorAll('[data-view-id]').forEach((button) => {
       button.addEventListener('click', () => viewInvoice(button.dataset.viewId));
     });
+
     savedInvoices.querySelectorAll('[data-delete-id]').forEach((button) => {
       button.addEventListener('click', () => deleteInvoice(button.dataset.deleteId));
     });
@@ -181,10 +189,12 @@ async function viewInvoice(id) {
   try {
     const response = await fetch(`${API_BASE}/api/v1/invoices/${id}`);
     const data = await response.json();
-    if (!response.ok || !data.success) throw new Error(data.error || 'Invoice not found.');
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || 'Unable to load invoice.');
+    }
     renderInvoice(data.invoice);
   } catch (error) {
-    alert(`Unable to load invoice: ${error.message}`);
+    alert(`Unable to view invoice: ${error.message}`);
   }
 }
 
