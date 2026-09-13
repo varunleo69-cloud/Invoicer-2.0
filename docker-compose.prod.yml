@@ -1,5 +1,6 @@
-services:
+name: invoicer20
 
+services:
   frontend:
     image: ghcr.io/varunleo69-cloud/invoicer-frontend:latest
     ports:
