@@ -1,36 +1,38 @@
+# Same application as Jenkins / GitHub Actions: nginx -> backend replicas -> postgres.
+# Assumes a GitLab runner with the host Docker socket mounted (as before).
 stages:
   - test
   - build
   - deploy
 
-# 1. Run unit tests using Node.js container
+variables:
+  COMPOSE_PROJECT_NAME: invoicer-gitlab   # separate stack from the Jenkins one
+  HTTP_PORT: "8082"                       # so both can run on the same host
+
 test-app:
   stage: test
-  image: node:18-alpine
+  image: node:22-alpine
   script:
-    - npm install
+    - npm ci
     - npm test
 
-# 2. Build the Docker image
-build-image:
+build-images:
   stage: build
-  image: docker:24-cli
+  image: docker:27-cli
   script:
-    - docker build -t invoicer:$CI_COMMIT_SHORT_SHA .
-    - docker tag invoicer:$CI_COMMIT_SHORT_SHA invoicer:latest
+    - docker compose build
 
-# 3. Deploy/run the container locally
-deploy-container:
+deploy-stack:
   stage: deploy
-  image: docker:24-cli
+  image: docker:27-cli
   script:
-    # Stop and remove existing container if running
-    - docker stop invoicer || true
-    - docker rm invoicer || true
-    # Run the new container
-    - docker run -d --name invoicer -p 3000:3000 invoicer:latest
-    # Simple smoke check
-    - sleep 3
-    - docker ps | grep invoicer
-  only:
-    - main
+    - docker compose up -d --remove-orphans --wait --wait-timeout 120
+    # localhost inside a job container is not the host, so test from inside the
+    # nginx container: this still covers nginx -> backend -> database.
+    - docker compose exec -T nginx wget -qO- http://127.0.0.1/health
+    - docker compose exec -T nginx wget -qO /dev/null http://127.0.0.1/api/v1/invoices
+    - docker compose ps
+  after_script:
+    - docker compose ps || true
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"

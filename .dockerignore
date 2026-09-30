@@ -2,7 +2,16 @@ node_modules
 npm-debug.log
 .git
 .gitignore
+.github
+.env
+*.backup
 Jenkinsfile
+.gitlab-ci.yml
 README.md
 cloudflared.deb
 tests
+coverage
+frontend
+nginx
+db
+docker-compose*.yml

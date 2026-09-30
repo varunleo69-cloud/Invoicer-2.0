@@ -1,22 +1,45 @@
+const os = require('os');
 const express = require('express');
 const cors = require('cors');
 const { calculateInvoice } = require('./billing');
 const { query } = require('./database');
 const invoiceRepository = require('./invoiceRepository');
+const { createInvoiceNumber } = require('./invoiceNumber');
 
 const app = express();
 
+// Browsers reach the API through the nginx load balancer on the same origin, so
+// CORS is only needed when FRONTEND_ORIGIN is set. Unset = no CORS headers
+// (the old default allowed every origin).
 app.use(cors({
-  origin: process.env.FRONTEND_ORIGIN || true
+  origin: process.env.FRONTEND_ORIGIN || false
 }));
+
+// Identify which replica answered. Handy to prove that nginx is balancing:
+//   for i in $(seq 10); do curl -si localhost:8080/health | grep -i x-instance; done
+const INSTANCE_ID = os.hostname();
+app.use((req, res, next) => {
+  res.set('X-Instance', INSTANCE_ID);
+  next();
+});
 app.use(express.json({ limit: '100kb' }));
 
 app.get('/health', async (req, res) => {
   try {
     await query('SELECT 1');
-    res.status(200).json({ status: 'UP', database: 'UP', timestamp: new Date().toISOString() });
+    res.status(200).json({
+        status: 'UP',
+        database: 'UP',
+        server: INSTANCE_ID,
+        timestamp: new Date().toISOString()
+    });
   } catch (error) {
-    res.status(503).json({ status: 'DOWN', database: 'DOWN', timestamp: new Date().toISOString() });
+    res.status(503).json({
+        status: 'DOWN',
+        database: 'DOWN',
+        server: INSTANCE_ID,
+        timestamp: new Date().toISOString()
+    });
   }
 });
 
@@ -76,11 +99,6 @@ app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
   res.status(500).json({ success: false, error: 'Internal server error.' });
 });
-
-function createInvoiceNumber() {
-  const stamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
-  return `INV-${stamp}-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
-}
 
 function parsePositiveInteger(value) {
   const id = Number(value);

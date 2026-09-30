@@ -23,7 +23,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 22   # same major version as the Docker image
           cache: npm
 
       - name: Install dependencies
@@ -81,9 +81,21 @@ jobs:
     needs: build-and-push
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
+    # Never run two deployments at the same time
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+
     permissions:
       contents: read
       packages: read
+
+    env:
+      # Deploy the exact images built for this commit (not ":latest"),
+      # so every deployment can be rolled back to a known SHA.
+      IMAGE_TAG: ${{ github.sha }}
+      # Repository secret: Settings > Secrets and variables > Actions > DB_PASSWORD
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
 
     steps:
       - name: Checkout repository
@@ -96,14 +108,23 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Pull latest images
+      - name: Pull images for this commit
         run: |
           docker compose -f docker-compose.prod.yml pull
 
       - name: Deploy application
         run: |
-          docker compose -f docker-compose.prod.yml up -d
+          # --wait blocks until every service with a healthcheck is healthy
+          docker compose -f docker-compose.prod.yml up -d --remove-orphans --wait --wait-timeout 180
 
-      - name: Check deployment
+      - name: Smoke test through the load balancer
         run: |
+          curl -fsS http://localhost:8081/health
+          curl -fsS http://localhost:8081/api/v1/invoices > /dev/null
           docker compose -f docker-compose.prod.yml ps
+
+      - name: Show logs if the deployment failed
+        if: failure()
+        run: |
+          docker compose -f docker-compose.prod.yml ps || true
+          docker compose -f docker-compose.prod.yml logs --tail=60 || true
