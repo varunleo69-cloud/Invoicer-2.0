@@ -81,14 +81,26 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Verify Kubernetes access
+      - name: Debug Minikube connectivity
         run: |
+          echo "=== Docker ==="
+          docker ps --filter name=minikube
+
+          echo "=== Minikube ==="
+          minikube status
+
+          echo "=== Route ==="
+          ip route
+
+          echo "=== Ping Minikube ==="
+          ping -c 3 192.168.49.2
+
+          echo "=== Kubernetes API ==="
+          curl -k https://192.168.49.2:8443/version
+
+          echo "=== Kubectl ==="
           kubectl config current-context
           kubectl get nodes
-
-      - name: Verify Minikube
-        run: |
-          minikube status
 
       - name: Apply Kubernetes manifests
         run: |
