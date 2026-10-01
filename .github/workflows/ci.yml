@@ -11,11 +11,11 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_PREFIX: ghcr.io/varunleo69-cloud/invoicer
+  K8S_NAMESPACE: invoicer
 
 jobs:
   test:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -23,7 +23,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: 22   # same major version as the Docker image
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
@@ -36,11 +36,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-
     permissions:
       contents: read
       packages: write
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -52,79 +50,81 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build frontend image
+      - name: Build and push frontend image
         run: |
           docker build \
             -t ${{ env.IMAGE_PREFIX }}-frontend:${{ github.sha }} \
-            -t ${{ env.IMAGE_PREFIX }}-frontend:latest \
             ./frontend
+          docker push ${{ env.IMAGE_PREFIX }}-frontend:${{ github.sha }}
 
-      - name: Build backend image
+      - name: Build and push backend image
         run: |
           docker build \
             -t ${{ env.IMAGE_PREFIX }}-backend:${{ github.sha }} \
-            -t ${{ env.IMAGE_PREFIX }}-backend:latest \
             .
-
-      - name: Push frontend image
-        run: |
-          docker push ${{ env.IMAGE_PREFIX }}-frontend:${{ github.sha }}
-          docker push ${{ env.IMAGE_PREFIX }}-frontend:latest
-
-      - name: Push backend image
-        run: |
           docker push ${{ env.IMAGE_PREFIX }}-backend:${{ github.sha }}
-          docker push ${{ env.IMAGE_PREFIX }}-backend:latest
 
   deploy:
     runs-on: self-hosted
     needs: build-and-push
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-
-    # Never run two deployments at the same time
     concurrency:
       group: deploy-production
       cancel-in-progress: false
-
     permissions:
       contents: read
       packages: read
-
     env:
-      # Deploy the exact images built for this commit (not ":latest"),
-      # so every deployment can be rolled back to a known SHA.
       IMAGE_TAG: ${{ github.sha }}
-      # Repository secret: Settings > Secrets and variables > Actions > DB_PASSWORD
       DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v4
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Pull images for this commit
+      - name: Verify Kubernetes access
         run: |
-          docker compose -f docker-compose.prod.yml pull
+          kubectl config current-context
+          kubectl get nodes
 
-      - name: Deploy application
+      - name: Verify Minikube
         run: |
-          # --wait blocks until every service with a healthcheck is healthy
-          docker compose -f docker-compose.prod.yml up -d --remove-orphans --wait --wait-timeout 180
+          minikube status
 
-      - name: Smoke test through the load balancer
+      - name: Apply Kubernetes manifests
         run: |
-          curl -fsS http://localhost:8081/health
-          curl -fsS http://localhost:8081/api/v1/invoices > /dev/null
-          docker compose -f docker-compose.prod.yml ps
+          kubectl apply -f k8s/invoicer.yaml
 
-      - name: Show logs if the deployment failed
+      - name: Create or update database secret
+        run: |
+          test -n "$DB_PASSWORD"
+          kubectl -n "$K8S_NAMESPACE" create secret generic invoicer-db \
+            --from-literal=DB_PASSWORD="$DB_PASSWORD" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Update application images
+        run: |
+          kubectl -n "$K8S_NAMESPACE" set image deployment/backend \
+            backend=${{ env.IMAGE_PREFIX }}-backend:${{ env.IMAGE_TAG }}
+          kubectl -n "$K8S_NAMESPACE" set image deployment/frontend \
+            frontend=${{ env.IMAGE_PREFIX }}-frontend:${{ env.IMAGE_TAG }}
+
+      - name: Wait for rollout
+        run: |
+          kubectl -n "$K8S_NAMESPACE" rollout status deployment/postgres --timeout=180s
+          kubectl -n "$K8S_NAMESPACE" rollout status deployment/backend --timeout=180s
+          kubectl -n "$K8S_NAMESPACE" rollout status deployment/frontend --timeout=180s
+          kubectl -n "$K8S_NAMESPACE" rollout status deployment/nginx --timeout=180s
+
+      - name: Smoke test
+        run: |
+          URL=$(minikube service nginx -n "$K8S_NAMESPACE" --url)
+          echo "Testing $URL"
+          curl -fsS "$URL/health"
+          curl -fsS "$URL/api/v1/invoices" > /dev/null
+
+      - name: Show status if deployment failed
         if: failure()
         run: |
-          docker compose -f docker-compose.prod.yml ps || true
-          docker compose -f docker-compose.prod.yml logs --tail=60 || true
+          kubectl get pods -n "$K8S_NAMESPACE" -o wide || true
+          kubectl get services -n "$K8S_NAMESPACE" || true
+          kubectl describe pods -n "$K8S_NAMESPACE" || true

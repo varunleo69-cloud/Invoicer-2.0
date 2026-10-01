@@ -1,0 +1,318 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: invoicer
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: invoicer-db
+  namespace: invoicer
+type: Opaque
+stringData:
+  # GitHub Actions replaces this value from the DB_PASSWORD repository secret.
+  DB_PASSWORD: change-me
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+  namespace: invoicer
+data:
+  01-init.sql: |
+    CREATE TABLE IF NOT EXISTS invoices (
+      id BIGSERIAL PRIMARY KEY,
+      invoice_number VARCHAR(64) NOT NULL UNIQUE,
+      item_count INTEGER NOT NULL CHECK (item_count > 0),
+      subtotal NUMERIC(12, 2) NOT NULL CHECK (subtotal >= 0),
+      tax_amount NUMERIC(12, 2) NOT NULL CHECK (tax_amount >= 0),
+      total NUMERIC(12, 2) NOT NULL CHECK (total >= 0),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS invoice_items (
+      id BIGSERIAL PRIMARY KEY,
+      invoice_id BIGINT NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+      name VARCHAR(255) NOT NULL,
+      price NUMERIC(12, 2) NOT NULL CHECK (price >= 0),
+      quantity INTEGER NOT NULL CHECK (quantity > 0),
+      tax_rate NUMERIC(5, 4) NOT NULL CHECK (tax_rate >= 0 AND tax_rate <= 1),
+      item_subtotal NUMERIC(12, 2) NOT NULL CHECK (item_subtotal >= 0),
+      item_tax NUMERIC(12, 2) NOT NULL CHECK (item_tax >= 0),
+      item_total NUMERIC(12, 2) NOT NULL CHECK (item_total >= 0)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_invoice_items_invoice_id ON invoice_items(invoice_id);
+    CREATE INDEX IF NOT EXISTS idx_invoices_created_at ON invoices(created_at DESC);
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+  namespace: invoicer
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: invoicer
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: invoicer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: invoicer
+            - name: POSTGRES_USER
+              value: invoicer
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: invoicer-db
+                  key: DB_PASSWORD
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+            - name: postgres-init
+              mountPath: /docker-entrypoint-initdb.d/01-init.sql
+              subPath: 01-init.sql
+              readOnly: true
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U invoicer -d invoicer"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U invoicer -d invoicer"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+      volumes:
+        - name: postgres-data
+          persistentVolumeClaim:
+            claimName: postgres-data
+        - name: postgres-init
+          configMap:
+            name: postgres-init
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: invoicer
+spec:
+  type: ClusterIP
+  selector:
+    app: backend
+  ports:
+    - port: 3000
+      targetPort: 3000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: invoicer
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+        - name: backend
+          image: ghcr.io/varunleo69-cloud/invoicer-backend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: PORT
+              value: "3000"
+            - name: DB_HOST
+              value: postgres
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_NAME
+              value: invoicer
+            - name: DB_USER
+              value: invoicer
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: invoicer-db
+                  key: DB_PASSWORD
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: invoicer
+spec:
+  selector:
+    app: frontend
+  ports:
+    - port: 80
+      targetPort: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: invoicer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+        - name: frontend
+          image: ghcr.io/varunleo69-cloud/invoicer-frontend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 80
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+  namespace: invoicer
+data:
+  nginx.conf: |
+    events {}
+
+    http {
+      server {
+        listen 80;
+        server_name _;
+
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 3s;
+        proxy_next_upstream error timeout http_502 http_503;
+
+        location /api/ {
+          proxy_pass http://backend:3000;
+        }
+
+        location = /health {
+          proxy_pass http://backend:3000/health;
+        }
+
+        location / {
+          proxy_pass http://frontend:80;
+        }
+      }
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+  namespace: invoicer
+spec:
+  type: NodePort
+  selector:
+    app: nginx
+  ports:
+    - port: 80
+      targetPort: 80
+      nodePort: 30080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+  namespace: invoicer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 15
+            periodSeconds: 10
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: nginx-config
